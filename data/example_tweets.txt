@@ -1,0 +1,11 @@
+# Add some example tweets here to teach the agent your style.
+# Separate each tweet with ---
+#
+# Example:
+# Breaking into Investment Banking isn't just about the GPA.
+# It's about how many coffee chats you can handle without losing your mind.
+# Build the bridge before you need to cross it.
+# ---
+# DCFs are just models, but they are the heartbeat of M&A.
+# If you can't walk through a bridge from EBITDA to FCF, you're not ready.
+# Practice until it's muscle memory.

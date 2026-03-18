@@ -1,0 +1,21 @@
+schedule:
+  post_time: "09:00"      # 24hr, local time
+  timezone: "Asia/Kolkata"
+
+posting:
+  auto_post: false        # Set true to enable autopilot
+  candidates_per_day: 5
+  post_top_n: 1           # How many to post per day
+
+guidelines:
+  - "STRICT: Never use emojis or non-text symbols"
+  - "Always explain jargon in plain language"
+  - "End every tweet with a question or call to follow"
+  - "Speak like a knowledgeable mentor"
+  - "Use specific numbers and data where possible"
+  - "Keep tweets under 260 characters"
+  - "Max 2 hashtags per tweet"
+
+gemini:
+  model: "gemini-2.0-flash"   # Free tier: 1,500 req/day
+  temperature: 1.0
