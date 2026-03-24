@@ -1,90 +1,76 @@
 import os
 import json
-import google.generativeai as genai
-from dotenv import load_dotenv
+from modules.claude_engine import ask_claude
 
-load_dotenv()
+THREAD_DELIMITER = "|||THREAD|||"
+
+
+def _load_style_instruction() -> str:
+    style_file = "data/style_profile.json"
+    if os.path.exists(style_file):
+        with open(style_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+            return data.get("system_instruction", "")
+    return ""
+
+
+def _parse_tweet(raw: str) -> dict:
+    """Parse Claude's raw output into a candidate dict."""
+    parts = [p.strip() for p in raw.split(THREAD_DELIMITER) if p.strip()]
+    if len(parts) > 1:
+        return {"text": parts, "is_thread": True}
+    return {"text": parts[0] if parts else raw.strip(), "is_thread": False}
+
 
 class TweetGenerator:
     def __init__(self, config):
         self.config = config
-        self.style_file = "data/style_profile.json"
-        
-        api_key = os.getenv("GEMINI_API_KEY")
-        if not api_key:
-            raise ValueError("GEMINI_API_KEY not found in environment")
-        
-        genai.configure(api_key=api_key)
-        self.model = genai.GenerativeModel(config["gemini"]["model"])
+        self.tweet_structure = config.get("tweet_structure", "")
 
-    def load_style_prompt(self):
-        if os.path.exists(self.style_file):
-            with open(self.style_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get("system_instruction", "")
-        return "Write tweet in a professional and engaging way tailored for students interested in Investment Banking."
+    def _system_instruction(self) -> str:
+        style = _load_style_instruction()
+        parts = [self.tweet_structure]
+        if style:
+            parts.append(f"\nAdditional style notes:\n{style}")
+        return "\n".join(parts).strip()
 
-    def generate_candidates(self, topic_entry):
-        style_instruction = self.load_style_prompt()
-        guidelines = self.config.get("guidelines", [])
-        
-        guidelines_str = "\n".join(f"- {g}" for g in guidelines)
-        
-        num_candidates = self.config.get("posting", {}).get("candidates_per_day", 3)
+    def generate_from_prompt(self, user_prompt: str) -> dict:
+        """Generate a single tweet (or thread) from a user-supplied prompt."""
+        system = self._system_instruction()
+        raw = ask_claude(user_prompt, system_instruction=system)
+        return _parse_tweet(raw)
 
-        prompt = f"""
-        {style_instruction}
+    def generate_candidates(self, topic_entry: dict) -> list:
+        """Generate multiple candidates for the auto-pilot pipeline."""
+        system = self._system_instruction()
+        num = self.config.get("posting", {}).get("candidates_per_day", 5)
 
-        TOPIC FOR TODAY: {topic_entry['topic']}
-        CATEGORY: {topic_entry['category']}
-
-        CONTENT GUIDELINES:
-        {guidelines_str}
-
-        TASK:
-        Generate {num_candidates} different tweet candidates based on the topic and category.
-        One of the candidates should be a short thread (2-3 parts) if the topic allows for it.
-        
-        FORMAT:
-        Return a JSON list of objects. Each object should have:
-        - "text": The tweet text (or list of texts if it's a thread)
-        - "is_thread": Boolean
-        - "rationale": Why this tweet works for the target audience
-        
-        Ensure each tweet is under 280 characters.
-        STRICT REQUIREMENT: NEVER use emojis, icons, or any non-text symbols in the tweets.
-        """
-
-        response = self.model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=self.config["gemini"].get("temperature", 1.0),
-                response_mime_type="application/json"
-            )
+        prompt = (
+            f"Generate {num} different tweet candidates about: {topic_entry['topic']} "
+            f"(Category: {topic_entry['category']}).\n\n"
+            f"For each candidate:\n"
+            f"- Write the tweet text following all rules.\n"
+            f"- If it's a thread, separate parts with {THREAD_DELIMITER}\n"
+            f"- Separate each candidate with ===CANDIDATE===\n\n"
+            f"Output ONLY the candidates separated by ===CANDIDATE===. No numbering, no labels."
         )
-        
-        candidates = json.loads(response.text)
+
+        raw = ask_claude(prompt, system_instruction=system)
+        raw_candidates = [c.strip() for c in raw.split("===CANDIDATE===") if c.strip()]
+
+        candidates = []
+        for raw_c in raw_candidates:
+            c = _parse_tweet(raw_c)
+            c["rationale"] = ""
+            candidates.append(c)
+
         return candidates
 
+
 if __name__ == "__main__":
-    # Quick test
     import yaml
     with open("config.yaml", "r") as f:
         cfg = yaml.safe_load(f)
-    
-    # Mock topic
-    mock_topic = {"topic": "The importance of M&A in IB", "category": "General"}
-    
-    generator = TweetGenerator(cfg)
-    # Note: This requires data/style_profile.json to exist if you want style learning
-    candidates = generator.generate_candidates(mock_topic)
-    
-    print(f"Generated {len(candidates)} candidates:")
-    for i, c in enumerate(candidates, 1):
-        print(f"\nCandidate {i}:")
-        if c["is_thread"]:
-            for part in c["text"]:
-                print(f"  - {part}")
-        else:
-            print(f"  {c['text']}")
-        print(f"  Rationale: {c['rationale']}")
+    gen = TweetGenerator(cfg)
+    result = gen.generate_from_prompt("Explain what a DCF valuation is for someone new to IB.")
+    print(result)
